@@ -1,16 +1,21 @@
 import os
 import io
 import logging
-import tempfile
 from pathlib import Path
 from typing import Dict, Optional
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, FSInputFile
+from aiogram.types import (
+    InlineKeyboardMarkup, 
+    InlineKeyboardButton,
+    CallbackQuery,
+    BufferedInputFile,
+    Message
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from PIL import Image
 from dotenv import load_dotenv
@@ -35,7 +40,7 @@ storage = MemoryStorage()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=storage)
 
-# Supported image formats with their display names and file extensions
+# Supported image formats
 SUPPORTED_FORMATS: Dict[str, Dict[str, str]] = {
     "png": {"display": "PNG", "ext": ".png", "mime": "image/png"},
     "jpeg": {"display": "JPEG", "ext": ".jpg", "mime": "image/jpeg"},
@@ -83,15 +88,8 @@ def get_format_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def convert_image(
-    image_data: bytes,
-    original_filename: str,
-    target_format: str
-) -> tuple[bytes, str, str]:
-    """
-    Convert image to target format using PIL
-    Returns: (converted_bytes, new_filename, mime_type)
-    """
+def convert_image(image_data: bytes, original_filename: str, target_format: str) -> tuple[bytes, str, str]:
+    """Convert image to target format using PIL"""
     try:
         # Open image from bytes
         image = Image.open(io.BytesIO(image_data))
@@ -110,20 +108,16 @@ def convert_image(
         
         # Handle special cases
         if target_format == "ico":
-            # ICO format requires specific size handling
             image = image.resize((64, 64))
             image.save(output, format="ICO", sizes=[(64, 64)])
         elif target_format == "gif":
-            # Convert to RGB for GIF if needed
             if image.mode not in ("P", "L", "RGB", "RGBA"):
                 image = image.convert("RGB")
             image.save(output, format="GIF")
         elif target_format == "webp":
             image.save(output, format="WEBP", quality=85)
         elif target_format == "jpeg":
-            # Convert to RGB if image has transparency (JPEG doesn't support alpha)
             if image.mode in ("RGBA", "LA", "P"):
-                # Create a white background
                 background = Image.new("RGB", image.size, (255, 255, 255))
                 if image.mode == "P":
                     image = image.convert("RGBA")
@@ -133,7 +127,6 @@ def convert_image(
                 image = image.convert("RGB")
             image.save(output, format="JPEG", quality=90)
         else:
-            # Default conversion for other formats
             if image.mode not in ("RGB", "RGBA", "L"):
                 image = image.convert("RGB")
             image.save(output, format=target_format.upper())
@@ -146,26 +139,15 @@ def convert_image(
         raise
 
 
-async def send_converted_image(
-    message: types.Message,
-    image_data: bytes,
-    original_filename: str,
-    target_format: str
-) -> None:
+async def send_converted_image(message: Message, image_data: bytes, original_filename: str, target_format: str) -> None:
     """Send converted image back to user"""
     try:
         converted_data, new_filename, mime_type = convert_image(
             image_data, original_filename, target_format
         )
         
-        # Create InputFile from bytes
-        from aiogram.types import BufferedInputFile
-        input_file = BufferedInputFile(
-            converted_data,
-            filename=new_filename
-        )
+        input_file = BufferedInputFile(converted_data, filename=new_filename)
         
-        # Send as document with thumbnail preview
         await message.reply_document(
             document=input_file,
             caption=(
@@ -188,7 +170,7 @@ async def send_converted_image(
 # ==================== COMMAND HANDLERS ====================
 
 @dp.message(Command("start"))
-async def start_command(message: types.Message):
+async def start_command(message: Message):
     """Handle /start command"""
     welcome_text = (
         "🎨 Welcome to Image Morph Bot!\n\n"
@@ -210,7 +192,7 @@ async def start_command(message: types.Message):
 
 
 @dp.message(Command("help"))
-async def help_command(message: types.Message):
+async def help_command(message: Message):
     """Handle /help command"""
     help_text = (
         "🤖 How to use Image Morph Bot:\n\n"
@@ -235,7 +217,7 @@ async def help_command(message: types.Message):
 
 
 @dp.message(Command("convert"))
-async def convert_command(message: types.Message, state: FSMContext):
+async def convert_command(message: Message, state: FSMContext):
     """Handle /convert command"""
     await state.set_state(ConversionStates.waiting_for_image)
     await message.reply(
@@ -246,7 +228,7 @@ async def convert_command(message: types.Message, state: FSMContext):
 
 
 @dp.message(Command("formats"))
-async def formats_command(message: types.Message):
+async def formats_command(message: Message):
     """Show all supported formats"""
     format_list = "\n".join([
         f"• {info['display']} (.{fmt})"
@@ -260,25 +242,24 @@ async def formats_command(message: types.Message):
 
 
 @dp.message(Command("about"))
-async def about_command(message: types.Message):
+async def about_command(message: Message):
     """Show bot information"""
     about_text = (
         "🤖 Image Morph Bot\n\n"
         "Version: 1.0.0\n"
-        "Built with: Python 3.11, aiogram 3.3.0, Pillow\n\n"
+        "Built with: Python 3.11, aiogram 3.10.0, Pillow 10.4.0\n\n"
         "📷 Convert images between formats:\n"
         "PNG ↔ JPEG ↔ WEBP ↔ BMP ↔ TIFF ↔ ICO ↔ GIF\n\n"
         "🔒 Privacy: Images are processed and deleted immediately.\n"
         "No data is stored on our servers.\n\n"
-        "👨‍💻 Open Source: Check the source code on GitHub\n"
-        "@image_morph_bot"
+        "👨‍💻 Username: @image_morph_bot"
     )
     
     await message.reply(about_text)
 
 
 @dp.message(Command("batch"))
-async def batch_command(message: types.Message, state: FSMContext):
+async def batch_command(message: Message, state: FSMContext):
     """Handle batch conversion"""
     await state.set_state(ConversionStates.waiting_for_batch)
     await message.reply(
@@ -291,11 +272,10 @@ async def batch_command(message: types.Message, state: FSMContext):
 
 
 @dp.message(Command("cancel"))
-async def cancel_command(message: types.Message, state: FSMContext):
+async def cancel_command(message: Message, state: FSMContext):
     """Cancel current operation"""
     await state.clear()
     
-    # Clear user data
     if message.from_user.id in user_data:
         del user_data[message.from_user.id]
     
@@ -306,7 +286,7 @@ async def cancel_command(message: types.Message, state: FSMContext):
 
 
 @dp.message(Command("done"))
-async def done_command(message: types.Message, state: FSMContext):
+async def done_command(message: Message, state: FSMContext):
     """Process batch images"""
     user_id = message.from_user.id
     
@@ -324,8 +304,6 @@ async def done_command(message: types.Message, state: FSMContext):
         return
     
     await state.set_state(ConversionStates.waiting_for_format_selection)
-    
-    # Store the batch for processing later
     user_data[user_id]["batch_mode"] = True
     
     await message.reply(
@@ -338,41 +316,32 @@ async def done_command(message: types.Message, state: FSMContext):
 # ==================== IMAGE HANDLERS ====================
 
 @dp.message(lambda message: message.photo or message.document)
-async def handle_image(message: types.Message, state: FSMContext):
+async def handle_image(message: Message, state: FSMContext):
     """Handle incoming images"""
     user_id = message.from_user.id
     
     try:
-        # Determine if it's a photo or document
         if message.photo:
-            # Get the largest photo
             photo = message.photo[-1]
             file_id = photo.file_id
             original_filename = "image.jpg"
-            file_type = "photo"
         elif message.document and message.document.mime_type and message.document.mime_type.startswith("image/"):
-            # It's an image document
             file_id = message.document.file_id
             original_filename = message.document.file_name or "image.jpg"
-            file_type = "document"
         else:
-            # Not an image
             await message.reply(
                 "❌ Please send an image file.\n"
                 "I support PNG, JPEG, WEBP, BMP, TIFF, ICO, and GIF."
             )
             return
         
-        # Download the image
         file = await bot.get_file(file_id)
         image_data = await bot.download_file(file.file_path)
         image_bytes = image_data.read() if hasattr(image_data, 'read') else image_data
         
-        # Check current state
         current_state = await state.get_state()
         
         if current_state == ConversionStates.waiting_for_batch.state:
-            # Add to batch
             if user_id not in user_data:
                 user_data[user_id] = {}
             if "batch_images" not in user_data[user_id]:
@@ -390,28 +359,9 @@ async def handle_image(message: types.Message, state: FSMContext):
             )
             return
         
-        elif current_state == ConversionStates.waiting_for_image.state:
-            # Single image conversion - ask for format
-            await state.set_state(ConversionStates.waiting_for_format_selection)
-            
-            # Store the image data
-            if user_id not in user_data:
-                user_data[user_id] = {}
-            user_data[user_id]["image_data"] = image_bytes
-            user_data[user_id]["filename"] = original_filename
-            
-            await message.reply(
-                f"✅ Got your image: {original_filename}\n\n"
-                "Now select the format you want:",
-                reply_markup=get_format_keyboard()
-            )
-            return
-        
         else:
-            # Default behavior - just convert
             await state.set_state(ConversionStates.waiting_for_format_selection)
             
-            # Store the image data
             if user_id not in user_data:
                 user_data[user_id] = {}
             user_data[user_id]["image_data"] = image_bytes
@@ -441,21 +391,15 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
     user_id = callback_query.from_user.id
     data = callback_query.data
     
-    # Handle cancel
     if data == "cancel_conversion":
         await state.clear()
         if user_id in user_data:
             del user_data[user_id]
         
-        await callback_query.message.edit_text(
-            "❌ Conversion cancelled."
-        )
-        await callback_query.message.reply(
-            "Send me another image or use /help for options."
-        )
+        await callback_query.message.edit_text("❌ Conversion cancelled.")
+        await callback_query.message.reply("Send me another image or use /help for options.")
         return
     
-    # Handle format selection
     if data.startswith("convert_to_"):
         target_format = data.replace("convert_to_", "")
         
@@ -463,9 +407,7 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
             await callback_query.message.reply("❌ Invalid format selected.")
             return
         
-        # Check if we're in batch mode
         if user_id in user_data and user_data[user_id].get("batch_mode"):
-            # Process batch conversion
             batch_images = user_data[user_id].get("batch_images", [])
             
             if not batch_images:
@@ -477,7 +419,6 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
                 "This may take a moment."
             )
             
-            # Convert each image
             converted_count = 0
             for idx, img_data in enumerate(batch_images):
                 try:
@@ -488,8 +429,6 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
                         image_bytes, original_filename, target_format
                     )
                     
-                    # Send the converted image
-                    from aiogram.types import BufferedInputFile
                     input_file = BufferedInputFile(converted_data, filename=new_filename)
                     
                     await callback_query.message.reply_document(
@@ -499,12 +438,11 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
                     converted_count += 1
                     
                 except Exception as e:
-                    logger.error(f"Batch conversion error for {img_data.get('filename', 'unknown')}: {str(e)}")
+                    logger.error(f"Batch conversion error: {str(e)}")
                     await callback_query.message.reply(
                         f"❌ Failed to convert {img_data.get('filename', 'unknown')}: {str(e)}"
                     )
             
-            # Clean up
             if user_id in user_data:
                 del user_data[user_id]
             await state.clear()
@@ -515,11 +453,8 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
             )
             
         else:
-            # Single image conversion
             if user_id not in user_data or "image_data" not in user_data[user_id]:
-                await callback_query.message.reply(
-                    "❌ No image found. Please send an image first."
-                )
+                await callback_query.message.reply("❌ No image found. Please send an image first.")
                 return
             
             image_data = user_data[user_id]["image_data"]
@@ -531,7 +466,6 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
             )
             
             try:
-                # Convert and send
                 await send_converted_image(
                     callback_query.message,
                     image_data,
@@ -539,7 +473,6 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
                     target_format
                 )
                 
-                # Clean up
                 if user_id in user_data:
                     del user_data[user_id]
                 await state.clear()
@@ -552,41 +485,9 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
                     f"❌ Conversion failed: {str(e)}\n"
                     "Please try again with a different image or format."
                 )
-                # Clean up on error
                 if user_id in user_data:
                     del user_data[user_id]
                 await state.clear()
-
-
-# ==================== ERROR HANDLERS ====================
-
-@dp.errors()
-async def error_handler(update, exception):
-    """Global error handler"""
-    logger.error(f"Unhandled error: {str(exception)}")
-    
-    if hasattr(update, 'message') and update.message:
-        try:
-            await update.message.reply(
-                "❌ An unexpected error occurred.\n"
-                "Please try again or report this issue."
-            )
-        except:
-            pass
-
-
-# ==================== STARTUP ====================
-
-async def on_startup():
-    """Actions to perform when bot starts"""
-    logger.info("🚀 Image Morph Bot is starting...")
-    logger.info(f"📷 Supported formats: {', '.join(SUPPORTED_FORMATS.keys())}")
-    logger.info("✅ Bot is ready!")
-
-
-async def on_shutdown():
-    """Actions to perform when bot stops"""
-    logger.info("🛑 Image Morph Bot is shutting down...")
 
 
 # ==================== MAIN ====================
@@ -594,12 +495,9 @@ async def on_shutdown():
 async def main():
     """Main entry point"""
     try:
-        # Register startup/shutdown handlers
-        dp.startup.register(on_startup)
-        dp.shutdown.register(on_shutdown)
+        logger.info("🚀 Image Morph Bot is starting...")
+        logger.info(f"📷 Supported formats: {', '.join(SUPPORTED_FORMATS.keys())}")
         
-        # Start polling
-        logger.info("Starting bot polling...")
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
         
