@@ -275,7 +275,7 @@ async def help_command(message: Message):
         "• Send any image - photo, document, or sticker\n"
         "• I preserve image quality as much as possible\n"
         "• I handle transparent images (except JPEG)\n"
-        "• Batch up to {MAX_BATCH_SIZE} images at once"
+        f"• Batch up to {MAX_BATCH_SIZE} images at once"
     )
 
     await message.reply(help_text)
@@ -317,7 +317,7 @@ async def about_command(message: Message):
         "PNG ↔ JPEG ↔ WEBP ↔ BMP ↔ TIFF ↔ ICO ↔ GIF\n\n"
         "🔒 Privacy: Images are processed and deleted immediately.\n"
         "No data is stored on our servers.\n\n"
-        "👨‍💻 Username: @image_morph_bot\n"
+        f"👨‍💻 Username: @{BOT_USERNAME}\n"
         "📚 Source: GitHub"
     )
 
@@ -374,7 +374,7 @@ async def done_command(message: Message, state: FSMContext):
     if len(images) > MAX_BATCH_SIZE:
         await message.reply(
             f"❌ Too many images! Maximum {MAX_BATCH_SIZE} images per batch.\n"
-            f"Please send fewer images."
+            "Please send fewer images."
         )
         return
 
