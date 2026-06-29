@@ -5,16 +5,16 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
-    InlineKeyboardMarkup, 
+    InlineKeyboardMarkup,
     InlineKeyboardButton,
     CallbackQuery,
-    BufferedInputFile,
-    Message
+    Message,
+    BufferedInputFile
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from PIL import Image
@@ -66,7 +66,7 @@ user_data: Dict[int, Dict] = {}
 def get_format_keyboard() -> InlineKeyboardMarkup:
     """Create inline keyboard with all supported formats"""
     builder = InlineKeyboardBuilder()
-    
+
     # Create a grid with 3 buttons per row
     formats = list(SUPPORTED_FORMATS.keys())
     for i in range(0, len(formats), 3):
@@ -78,13 +78,13 @@ def get_format_keyboard() -> InlineKeyboardMarkup:
                 callback_data=f"convert_to_{fmt}"
             ))
         builder.row(*row)
-    
+
     # Add cancel button at the bottom
     builder.row(InlineKeyboardButton(
         text="❌ Cancel",
         callback_data="cancel_conversion"
     ))
-    
+
     return builder.as_markup()
 
 
@@ -93,19 +93,19 @@ def convert_image(image_data: bytes, original_filename: str, target_format: str)
     try:
         # Open image from bytes
         image = Image.open(io.BytesIO(image_data))
-        
+
         # Get format info
         format_info = SUPPORTED_FORMATS[target_format]
         ext = format_info["ext"]
         mime_type = format_info["mime"]
-        
+
         # Generate new filename
         base_name = Path(original_filename).stem
         new_filename = f"{base_name}_converted{ext}"
-        
+
         # Convert format
         output = io.BytesIO()
-        
+
         # Handle special cases
         if target_format == "ico":
             image = image.resize((64, 64))
@@ -130,10 +130,10 @@ def convert_image(image_data: bytes, original_filename: str, target_format: str)
             if image.mode not in ("RGB", "RGBA", "L"):
                 image = image.convert("RGB")
             image.save(output, format=target_format.upper())
-        
+
         output.seek(0)
         return output.read(), new_filename, mime_type
-        
+
     except Exception as e:
         logger.error(f"Conversion error: {str(e)}")
         raise
@@ -145,9 +145,9 @@ async def send_converted_image(message: Message, image_data: bytes, original_fil
         converted_data, new_filename, mime_type = convert_image(
             image_data, original_filename, target_format
         )
-        
+
         input_file = BufferedInputFile(converted_data, filename=new_filename)
-        
+
         await message.reply_document(
             document=input_file,
             caption=(
@@ -158,7 +158,7 @@ async def send_converted_image(message: Message, image_data: bytes, original_fil
                 f"Send another image or use /help for options."
             )
         )
-        
+
     except Exception as e:
         logger.error(f"Error sending converted image: {str(e)}")
         await message.reply(
@@ -187,7 +187,7 @@ async def start_command(message: Message):
         "/about - About this bot\n\n"
         "💡 Tip: Just send an image to get started!"
     )
-    
+
     await message.reply(welcome_text)
 
 
@@ -212,7 +212,7 @@ async def help_command(message: Message):
         "• I preserve image quality as much as possible\n"
         "• I handle transparent images (except JPEG)"
     )
-    
+
     await message.reply(help_text)
 
 
@@ -234,7 +234,7 @@ async def formats_command(message: Message):
         f"• {info['display']} (.{fmt})"
         for fmt, info in SUPPORTED_FORMATS.items()
     ])
-    
+
     await message.reply(
         f"📷 Supported image formats:\n\n{format_list}\n\n"
         f"Total: {len(SUPPORTED_FORMATS)} formats"
@@ -247,14 +247,14 @@ async def about_command(message: Message):
     about_text = (
         "🤖 Image Morph Bot\n\n"
         "Version: 1.0.0\n"
-        "Built with: Python 3.11, aiogram 3.10.0, Pillow 10.4.0\n\n"
+        "Built with: Python 3.11, aiogram 3.4.1, Pillow 10.4.0\n\n"
         "📷 Convert images between formats:\n"
         "PNG ↔ JPEG ↔ WEBP ↔ BMP ↔ TIFF ↔ ICO ↔ GIF\n\n"
         "🔒 Privacy: Images are processed and deleted immediately.\n"
         "No data is stored on our servers.\n\n"
         "👨‍💻 Username: @image_morph_bot"
     )
-    
+
     await message.reply(about_text)
 
 
@@ -275,10 +275,10 @@ async def batch_command(message: Message, state: FSMContext):
 async def cancel_command(message: Message, state: FSMContext):
     """Cancel current operation"""
     await state.clear()
-    
+
     if message.from_user.id in user_data:
         del user_data[message.from_user.id]
-    
+
     await message.reply(
         "✅ Operation cancelled.\n"
         "Send me an image or use /help for options."
@@ -289,23 +289,23 @@ async def cancel_command(message: Message, state: FSMContext):
 async def done_command(message: Message, state: FSMContext):
     """Process batch images"""
     user_id = message.from_user.id
-    
+
     if user_id not in user_data or "batch_images" not in user_data[user_id]:
         await message.reply(
             "❌ No images found in batch.\n"
             "Send images first, then /done."
         )
         return
-    
+
     images = user_data[user_id]["batch_images"]
-    
+
     if not images:
         await message.reply("❌ No images to process.")
         return
-    
+
     await state.set_state(ConversionStates.waiting_for_format_selection)
     user_data[user_id]["batch_mode"] = True
-    
+
     await message.reply(
         f"📚 Found {len(images)} images in batch.\n\n"
         "Please select the format you want to convert them to:",
@@ -319,7 +319,7 @@ async def done_command(message: Message, state: FSMContext):
 async def handle_image(message: Message, state: FSMContext):
     """Handle incoming images"""
     user_id = message.from_user.id
-    
+
     try:
         if message.photo:
             photo = message.photo[-1]
@@ -334,45 +334,45 @@ async def handle_image(message: Message, state: FSMContext):
                 "I support PNG, JPEG, WEBP, BMP, TIFF, ICO, and GIF."
             )
             return
-        
+
         file = await bot.get_file(file_id)
         image_data = await bot.download_file(file.file_path)
         image_bytes = image_data.read() if hasattr(image_data, 'read') else image_data
-        
+
         current_state = await state.get_state()
-        
+
         if current_state == ConversionStates.waiting_for_batch.state:
             if user_id not in user_data:
                 user_data[user_id] = {}
             if "batch_images" not in user_data[user_id]:
                 user_data[user_id]["batch_images"] = []
-            
+
             user_data[user_id]["batch_images"].append({
                 "data": image_bytes,
                 "filename": original_filename
             })
-            
+
             await message.reply(
                 f"✅ Added: {original_filename}\n"
                 f"Total: {len(user_data[user_id]['batch_images'])} images\n"
                 "Send /done when you're ready to convert them."
             )
             return
-        
+
         else:
             await state.set_state(ConversionStates.waiting_for_format_selection)
-            
+
             if user_id not in user_data:
                 user_data[user_id] = {}
             user_data[user_id]["image_data"] = image_bytes
             user_data[user_id]["filename"] = original_filename
-            
+
             await message.reply(
                 f"✅ Got your image: {original_filename}\n\n"
                 "Select the format to convert to:",
                 reply_markup=get_format_keyboard()
             )
-        
+
     except Exception as e:
         logger.error(f"Error handling image: {str(e)}")
         await message.reply(
@@ -387,84 +387,84 @@ async def handle_image(message: Message, state: FSMContext):
 async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
     """Handle inline keyboard callbacks"""
     await callback_query.answer()
-    
+
     user_id = callback_query.from_user.id
     data = callback_query.data
-    
+
     if data == "cancel_conversion":
         await state.clear()
         if user_id in user_data:
             del user_data[user_id]
-        
+
         await callback_query.message.edit_text("❌ Conversion cancelled.")
         await callback_query.message.reply("Send me another image or use /help for options.")
         return
-    
+
     if data.startswith("convert_to_"):
         target_format = data.replace("convert_to_", "")
-        
+
         if target_format not in SUPPORTED_FORMATS:
             await callback_query.message.reply("❌ Invalid format selected.")
             return
-        
+
         if user_id in user_data and user_data[user_id].get("batch_mode"):
             batch_images = user_data[user_id].get("batch_images", [])
-            
+
             if not batch_images:
                 await callback_query.message.reply("❌ No images found in batch.")
                 return
-            
+
             await callback_query.message.edit_text(
                 f"⏳ Converting {len(batch_images)} images to {target_format.upper()}...\n"
                 "This may take a moment."
             )
-            
+
             converted_count = 0
             for idx, img_data in enumerate(batch_images):
                 try:
                     image_bytes = img_data["data"]
                     original_filename = img_data["filename"]
-                    
+
                     converted_data, new_filename, mime_type = convert_image(
                         image_bytes, original_filename, target_format
                     )
-                    
+
                     input_file = BufferedInputFile(converted_data, filename=new_filename)
-                    
+
                     await callback_query.message.reply_document(
                         document=input_file,
                         caption=f"✅ {idx+1}/{len(batch_images)}: {new_filename}"
                     )
                     converted_count += 1
-                    
+
                 except Exception as e:
                     logger.error(f"Batch conversion error: {str(e)}")
                     await callback_query.message.reply(
                         f"❌ Failed to convert {img_data.get('filename', 'unknown')}: {str(e)}"
                     )
-            
+
             if user_id in user_data:
                 del user_data[user_id]
             await state.clear()
-            
+
             await callback_query.message.edit_text(
                 f"✅ Batch conversion complete!\n"
                 f"Converted {converted_count}/{len(batch_images)} images to {target_format.upper()}."
             )
-            
+
         else:
             if user_id not in user_data or "image_data" not in user_data[user_id]:
                 await callback_query.message.reply("❌ No image found. Please send an image first.")
                 return
-            
+
             image_data = user_data[user_id]["image_data"]
             original_filename = user_data[user_id]["filename"]
-            
+
             await callback_query.message.edit_text(
                 f"⏳ Converting to {target_format.upper()}...\n"
                 "Please wait."
             )
-            
+
             try:
                 await send_converted_image(
                     callback_query.message,
@@ -472,13 +472,13 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
                     original_filename,
                     target_format
                 )
-                
+
                 if user_id in user_data:
                     del user_data[user_id]
                 await state.clear()
-                
+
                 await callback_query.message.delete()
-                
+
             except Exception as e:
                 logger.error(f"Conversion error: {str(e)}")
                 await callback_query.message.reply(
@@ -497,10 +497,10 @@ async def main():
     try:
         logger.info("🚀 Image Morph Bot is starting...")
         logger.info(f"📷 Supported formats: {', '.join(SUPPORTED_FORMATS.keys())}")
-        
+
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
-        
+
     except Exception as e:
         logger.error(f"Critical error: {str(e)}")
         raise
